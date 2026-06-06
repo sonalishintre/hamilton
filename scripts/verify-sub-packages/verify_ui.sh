@@ -116,8 +116,13 @@ build_dir="/tmp/build-ui-$$"
 mkdir -p "$build_dir"
 tar xzf "$ARTIFACTS_DIR/$SRC_TAR" -C "$build_dir"
 src_dir=$(ls -d ${build_dir}/*/ | head -1)
-if (cd "$src_dir" && flit build --no-use-vcs) 2>&1 | grep -q "Built wheel"; then
-    echo "  ✓ Built from source successfully"
+
+# Note: The UI source tarball does not include compiled frontend assets.
+# The release script builds the frontend (npm run build) before flit build.
+# Here we verify the backend builds correctly; the wheel from SVN includes
+# the pre-compiled frontend and is what's tested in step 6.
+if (cd "$src_dir" && uvx flit build --no-use-vcs) 2>&1 | grep -q "Built wheel"; then
+    echo "  ✓ Built from source successfully (backend only)"
 else
     echo "  ✗ Build from source failed"
     rm -rf "$build_dir"
@@ -134,6 +139,7 @@ PORT=8241
 
 uv venv "$VENV_DIR" --python 3.12 -q
 source "$VENV_DIR/bin/activate"
+cd /tmp  # prevent '' in sys.path from resolving local hamilton checkout
 
 uv pip install -q "$ARTIFACTS_DIR/$WHEEL" apache-hamilton packaging
 
@@ -167,10 +173,23 @@ fi
 
 # Frontend check
 python -c "
-import urllib.request
-resp = urllib.request.urlopen('http://localhost:${PORT}/')
-html = resp.read().decode()
-assert '<div id=\"root\"' in html or '<html' in html.lower(), 'No HTML served'
+import importlib.util, sys, urllib.request, urllib.error
+from pathlib import Path
+
+spec = importlib.util.find_spec('hamilton_ui')
+pkg_dir = Path(spec.origin).parent
+index_html = pkg_dir / 'build' / 'index.html'
+if not index_html.exists():
+    print(f'  ✗ Frontend not bundled in wheel (missing {index_html})', file=sys.stderr)
+    sys.exit(1)
+
+try:
+    resp = urllib.request.urlopen('http://localhost:${PORT}/')
+    html = resp.read().decode()
+    assert '<div id=\"root\"' in html or '<html' in html.lower(), 'No HTML served'
+except urllib.error.HTTPError as e:
+    print(f'  ✗ GET / returned HTTP {e.code} — server error despite bundled frontend', file=sys.stderr)
+    sys.exit(1)
 "
 echo "  ✓ Frontend serves HTML"
 

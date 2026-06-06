@@ -116,7 +116,7 @@ build_dir="/tmp/build-sdk-$$"
 mkdir -p "$build_dir"
 tar xzf "$ARTIFACTS_DIR/$SRC_TAR" -C "$build_dir"
 src_dir=$(ls -d ${build_dir}/*/ | head -1)
-if (cd "$src_dir" && flit build --no-use-vcs) 2>&1 | grep -q "Built wheel"; then
+if (cd "$src_dir" && uvx flit build --no-use-vcs) 2>&1 | grep -q "Built wheel"; then
     echo "  ✓ Built from source successfully"
 else
     echo "  ✗ Build from source failed"
@@ -131,6 +131,7 @@ echo "--- Functional verification ---"
 VENV_DIR="/tmp/verify-sdk-func-$$"
 uv venv "$VENV_DIR" --python 3.12 -q
 source "$VENV_DIR/bin/activate"
+cd /tmp  # prevent '' in sys.path from resolving local hamilton checkout
 
 uv pip install -q "$ARTIFACTS_DIR/$WHEEL" apache-hamilton
 
